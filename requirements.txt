@@ -1,0 +1,5 @@
+requests>=2.31
+
+# Voice note transcription (optional — remove if you don't need it)
+# Also requires: brew install ffmpeg
+faster-whisper>=1.0

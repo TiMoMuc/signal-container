@@ -1,0 +1,21 @@
+version: "3.8"
+
+services:
+  signal-cli:
+    build:
+      context: .
+      dockerfile: Dockerfile.standalone
+    image: signal-cli:latest
+    container_name: signal-cli
+    restart: unless-stopped
+    ports:
+      # Only bind to localhost — do NOT expose this to the public internet
+      - "127.0.0.1:8080:8080"
+    volumes:
+      # Named volume keeps your account data, keys, and attachments safe across restarts
+      - signal-cli-data:/var/lib/signal-cli
+    # Run as the HTTP daemon on all container interfaces (port is still locked to localhost on the host)
+    command: ["-a", "+15551234567", "daemon", "--http", "0.0.0.0:8080"]
+
+volumes:
+  signal-cli-data:

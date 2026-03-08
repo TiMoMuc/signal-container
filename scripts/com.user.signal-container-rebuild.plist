@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Label: unique identifier for this launch agent -->
+    <key>Label</key>
+    <string>com.user.signal-container-rebuild</string>
+
+    <!-- Program to run -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/coco/Library/Mobile Documents/com~apple~CloudDocs/para/projects/signal/signal-container/scripts/rebuild-container.sh</string>
+    </array>
+
+    <!-- Run on the first day of every month at 3 AM -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Day</key>
+        <integer>1</integer>
+        <key>Hour</key>
+        <integer>3</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <!-- Stdout/Stderr logging (redundant with script logging, but helpful for debugging) -->
+    <key>StandardOutPath</key>
+    <string>/Users/coco/Library/Logs/com.user.signal-container-rebuild.stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/coco/Library/Logs/com.user.signal-container-rebuild.stderr.log</string>
+
+    <!-- Run regardless of user login status (persistent) -->
+    <key>RunAtLoad</key>
+    <false/>
+
+    <!-- Environment variables (adjust if needed) -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <!-- Keep the job alive if it exits unexpectedly (optional) -->
+    <key>KeepAlive</key>
+    <false/>
+
+    <!-- Nice level (higher = lower priority, 0-20, default is 0) -->
+    <key>Nice</key>
+    <integer>10</integer>
+</dict>
+</plist>

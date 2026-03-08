@@ -1,0 +1,1 @@
+- [x] start a launch agent script to rebuild and restart the container one time per month, so that i stays up to date. (See docs/launchd-autorebuild.md)
