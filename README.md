@@ -288,8 +288,9 @@ done
 ### Health check — `GET /api/v1/check`
 
 ```bash
-curl http://localhost:8088/api/v1/check
-# → 200 OK
+# The endpoint returns 200 with an empty body — use -w to see the status code:
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8088/api/v1/check
+# → 200
 ```
 
 ---
@@ -463,6 +464,22 @@ Either of these deletes your account data and requires re-linking.
 ---
 
 ## Troubleshooting
+
+### `exec format error` during `docker compose build` on Linux
+
+If you're building on a Linux ARM64 host (Raspberry Pi, ARM cloud server, etc.) and see:
+
+```
+exec /bin/sh: exec format error
+```
+
+The x86_64 base image can't run without QEMU emulation. Install it once:
+
+```bash
+docker run --privileged --rm tonistiigi/binfmt --install all
+```
+
+Then retry `docker compose build`. This survives reboots.
 
 ### `exec format error` / `no matching manifest` on Apple Silicon
 
