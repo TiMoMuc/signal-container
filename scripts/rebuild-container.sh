@@ -8,14 +8,15 @@
 # Usage:
 #   ./scripts/rebuild-container.sh
 #
-# When run via launchd:
+# When run by the scheduler (launchd / systemd):
 #   - Logs to ~/Library/Logs/signal-container-rebuild.log
 #   - Runs monthly to stay ahead of the 3-month expiration
 
 set -euo pipefail
 
-# Determine the directory where this script lives
+# Determine the directory where this script lives, then move to the project root.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Log file location
 LOG="$HOME/Library/Logs/signal-container-rebuild.log"
@@ -32,8 +33,25 @@ echo "signal-cli container rebuild started: $(date)"
 echo "=========================================="
 
 # Navigate to the project directory
-cd "$SCRIPT_DIR"
+cd "$PROJECT_DIR"
 echo "Working directory: $(pwd)"
+
+if [ ! -f docker-compose.yml ]; then
+    echo "ERROR: docker-compose.yml not found in $PROJECT_DIR"
+    exit 1
+fi
+
+# Prefer modern Docker Compose v2, but fall back to docker-compose if needed.
+if docker compose version >/dev/null 2>&1; then
+    COMPOSE=(docker compose)
+elif command -v docker-compose >/dev/null 2>&1; then
+    COMPOSE=(docker-compose)
+else
+    echo "ERROR: Neither 'docker compose' nor 'docker-compose' is available."
+    exit 1
+fi
+
+echo "Compose command: ${COMPOSE[*]}"
 
 # Check if Docker is running
 if ! docker info >/dev/null 2>&1; then
@@ -48,6 +66,7 @@ if docker images signal-cli:latest -q | grep -q .; then
     CURRENT_VERSION=$(docker run --rm signal-cli:latest --version 2>/dev/null | awk '{print $NF}' || echo "unknown")
     echo "Current version: $CURRENT_VERSION"
 else
+    CURRENT_VERSION="none"
     echo "No existing signal-cli image found."
 fi
 
@@ -61,7 +80,7 @@ fi
 # Stop running containers
 echo ""
 echo "Stopping existing containers..."
-docker-compose down || true
+"${COMPOSE[@]}" down || true
 
 # Remove old image to force a fresh build
 echo ""
@@ -71,7 +90,7 @@ docker rmi signal-cli:latest 2>/dev/null || echo "No old image to remove."
 # Rebuild the image (this downloads the latest signal-cli release)
 echo ""
 echo "Rebuilding signal-cli image (this downloads the latest signal-cli)..."
-docker-compose build --no-cache
+"${COMPOSE[@]}" build --no-cache
 
 # Check new version
 echo ""
@@ -82,7 +101,7 @@ echo "New version: $NEW_VERSION"
 # Start containers
 echo ""
 echo "Starting containers..."
-docker-compose up -d
+"${COMPOSE[@]}" up -d
 
 # Wait a moment for the container to stabilize
 sleep 5
@@ -90,12 +109,12 @@ sleep 5
 # Check container status
 echo ""
 echo "Container status:"
-docker-compose ps
+"${COMPOSE[@]}" ps
 
 # Check recent logs
 echo ""
 echo "Recent container logs:"
-docker-compose logs --tail=20
+"${COMPOSE[@]}" logs --tail=20
 
 echo ""
 echo "=========================================="
@@ -105,7 +124,7 @@ echo ""
 
 # Optional: Send a notification to Signal note-to-self
 # Uncomment if you want to be notified when updates happen
-# SIGNAL_HTTP=${SIGNAL_HTTP:-http://localhost:8080}
+# SIGNAL_HTTP=${SIGNAL_HTTP:-http://localhost:8088}
 # SIGNAL_ACCOUNT=${SIGNAL_ACCOUNT:-+15551234567}
 # curl -s -X POST "$SIGNAL_HTTP/api/v1/rpc" \
 #   -H "Content-Type: application/json" \

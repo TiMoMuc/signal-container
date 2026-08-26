@@ -1,6 +1,6 @@
 FROM docker.io/azul/zulu-openjdk:25-jre-headless
 
-LABEL org.opencontainers.image.source=https://github.com/AsamK/signal-cli
+LABEL org.opencontainers.image.source=https://github.com/TiMoMuc/signal-container
 LABEL org.opencontainers.image.description="Self-contained signal-cli image — downloads latest release at build time."
 LABEL org.opencontainers.image.licenses=GPL-3.0-only
 
@@ -29,7 +29,7 @@ RUN useradd signal-cli --system --create-home --home-dir /var/lib/signal-cli
 # Persist account data (keys, account info, attachments) outside the container
 VOLUME /var/lib/signal-cli
 
-# HTTP daemon port
+# HTTP daemon port (internal container port; mapped to host port 8088 via docker-compose / -p)
 EXPOSE 8080
 
 USER signal-cli
