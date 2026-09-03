@@ -1,5 +1,5 @@
 services:
-  signal-cli:
+  app:
     build:
       context: .
       dockerfile: Dockerfile
@@ -7,20 +7,22 @@ services:
     # signal-cli only bundles libsignal native libs for x86_64 Linux.
     # This must stay linux/amd64 regardless of host architecture.
     platform: linux/amd64
-    container_name: signal-cli
     restart: unless-stopped
+    env_file:
+      - ${TRAFFIQ_RUNTIME_DIR:-./state}/signal.env
     ports:
-      # Host interface to bind to.
-      # - "127.0.0.1:8088:8080"  → localhost only (safe default)
-      # - "0.0.0.0:8088:8080"     → reachable from LAN
-      # Do NOT expose this port to the public internet — there is no authentication.
-      - "${SIGNAL_BIND_HOST}:8088:8080"
+      # Server Tailscale IPv4. Never bind this unauthenticated API to 0.0.0.0.
+      - "100.68.163.67:8088:8080"
     volumes:
       # Named volume keeps your account data, keys, and attachments safe across restarts.
       - signal-cli-data:/var/lib/signal-cli
     # Run as the standalone HTTP daemon on all container interfaces.
-    command: ["-a", "${SIGNAL_PHONE_NUMBER}", "daemon", "--http", "0.0.0.0:8080"]
+    entrypoint: ["/bin/sh", "-c"]
+    command: >-
+      exec signal-cli --config=/var/lib/signal-cli -a "$$SIGNAL_PHONE_NUMBER"
+      daemon --http 0.0.0.0:8080
 
 volumes:
   signal-cli-data:
     name: signal-cli-data
+    external: true

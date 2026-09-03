@@ -295,6 +295,21 @@ curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8088/api/v1/check
 
 ---
 
+## Traffiq deployment
+
+On the black-agents server this repository is deployed as the unrouted
+`signal` app: `.traffiq/app.env` intentionally has no `APP_PORT`, so it gets
+no Traefik route and never joins the `proxy` network. The HTTP API remains
+Tailscale-only through `SIGNAL_BIND_HOST=100.68.163.67` and port `8088`.
+
+The phone number is server-only configuration in
+`/srv/traffiq/apps/signal/runtime/signal.env`; do not commit it. The Compose
+file binds the API to the server's current Tailscale IP and declares the
+existing `signal-cli-data` volume as external, preserving
+its linked-device registration and message state across this migration.
+
+---
+
 ## Security
 
 **There is no authentication on the HTTP API.** The port binding controls who can reach it:
