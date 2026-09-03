@@ -18,9 +18,8 @@ services:
       - signal-cli-data:/var/lib/signal-cli
     # Run as the standalone HTTP daemon on all container interfaces.
     entrypoint: ["/bin/sh", "-c"]
-    command: >-
-      exec signal-cli --config=/var/lib/signal-cli -a "$$SIGNAL_PHONE_NUMBER"
-      daemon --http 0.0.0.0:8080
+    command:
+      - 'exec signal-cli --config=/var/lib/signal-cli -a "$${SIGNAL_PHONE_NUMBER}" daemon --http 0.0.0.0:8080'
 
 volumes:
   signal-cli-data:
