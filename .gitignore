@@ -1,3 +1,4 @@
 .env
 .DS_Store
-.pi/
+.pi/# Instance-owned linked-device identity, keys, and message data.
+state/

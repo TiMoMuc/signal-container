@@ -9,19 +9,14 @@ services:
     platform: linux/amd64
     restart: unless-stopped
     env_file:
-      - ${TRAFFIQ_RUNTIME_DIR:-./state}/signal.env
+      - .env
     ports:
-      # Server Tailscale IPv4. Never bind this unauthenticated API to 0.0.0.0.
-      - "100.68.163.67:8088:8080"
+      # The Signal HTTP API has no authentication. Never bind it publicly.
+      - "${SIGNAL_BIND_HOST:-127.0.0.1}:8088:8080"
     volumes:
-      # Named volume keeps your account data, keys, and attachments safe across restarts.
-      - signal-cli-data:/var/lib/signal-cli
+      # Instance-owned linked-device identity, keys, and messages.
+      - "${SIGNAL_STATE_DIR:-./state}:/var/lib/signal-cli"
     # Run as the standalone HTTP daemon on all container interfaces.
     entrypoint: ["/bin/sh", "-c"]
     command:
       - 'exec signal-cli --config=/var/lib/signal-cli -a "$${SIGNAL_PHONE_NUMBER}" daemon --http 0.0.0.0:8080'
-
-volumes:
-  signal-cli-data:
-    name: signal-cli-data
-    external: true
