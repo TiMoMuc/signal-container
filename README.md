@@ -20,8 +20,10 @@ HTTP API and does not own this container or its account state.
 - One Signal number and its `state/` belong to one instance only. Never copy
   them to create another server. A backup may restore the *same* instance.
 
-The image is deliberately `linux/amd64`, including on Apple Silicon, because
-signal-cli's native libraries require it. Docker Desktop supplies emulation.
+The image is deliberately `linux/amd64`, including on Apple Silicon and ARM
+Linux, because signal-cli's native libraries require it. Those ARM hosts need
+Docker's AMD64 emulation; the existing ARM reference runtimes have proven that
+configuration.
 
 ## Set up a new instance
 
