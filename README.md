@@ -1,553 +1,161 @@
-# signal-cli Docker Container
+# Signal container
 
-Run [signal-cli](https://github.com/AsamK/signal-cli) as a self-contained Docker container — send and receive Signal messages from any language or tool, no local Java installation needed.
+A private, single-account [signal-cli](https://github.com/AsamK/signal-cli)
+HTTP daemon. It is the Signal companion service for a pai-server instance,
+but it remains a standalone source repository: a bridge consumes its local
+HTTP API and does not own this container or its account state.
 
-> 🚀 **Pre-built image:** `ghcr.io/timomuc/signal-container:main` &ensp;|&ensp; [`#quick-start`](#quick-start) &ensp;|&ensp; [`#api-reference`](#api-reference)
+## Boundaries
 
----
+- The API exposes `POST /api/v1/rpc` for JSON-RPC sends and
+  `GET /api/v1/events` for Server-Sent Event receives.
+- The API has **no authentication**. The host bind is its access boundary.
+  The default is localhost only; never bind it publicly.
+- `.env` is the only application configuration source. Copy
+  `.env.example`; do not record actual values in docs or Compose files.
+- `state/` is instance-owned mutable state: the linked-device identity,
+  account keys, attachments, and message data. It is ignored by Git.
+- One Signal number and its `state/` belong to one instance only. Never copy
+  them to create another server. A backup may restore the *same* instance.
 
-## Contents
+The image is deliberately `linux/amd64`, including on Apple Silicon, because
+signal-cli's native libraries require it. Docker Desktop supplies emulation.
 
-- [What this is](#what-this-is)
-- [Quick Start](#quick-start)
-- [API Reference](#api-reference)
-- [Security](#security)
-- [Container image](#container-image)
-- [Auto-update](#auto-update)
-- [Data persistence & backup](#data-persistence--backup)
-- [Troubleshooting](#troubleshooting)
+## Set up a new instance
 
----
+These steps work for a human operator and are safe for an agent to prepare.
+The QR scan is intentionally a human trust step.
 
-## What this is
+1. Clone this repository and enter it.
 
-A thin Docker wrapper around [signal-cli](https://github.com/AsamK/signal-cli). It runs signal-cli as an HTTP daemon with **two endpoints**:
+   ```bash
+   git clone https://github.com/TiMoMuc/signal-container.git
+   cd signal-container
+   ```
 
-| Endpoint | Direction | Purpose |
-|---|---|---|
-| `POST /api/v1/rpc` | Send | JSON-RPC — send messages and attachments |
-| `GET /api/v1/events` | Receive | [Server-Sent Events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events) — live incoming messages |
+2. Create the ignored runtime env file from its tracked shape. Assign a
+   number that is new and exclusive to this instance. Keep the default
+   localhost bind unless the consuming bridge has a deliberately private
+   network route to this host.
 
-That's it. signal-cli supports additional transports (UNIX socket, TCP, DBus) and additional receive modes (`subscribeReceive`, polling `receive`), but this container exposes only the two above to keep the surface minimal and maintenance predictable.
+   ```bash
+   cp .env.example .env
+   chmod 600 .env
+   ```
 
----
+3. Build the image and create the fresh instance state directory.
 
-## Quick Start
+   ```bash
+   docker compose build
+   mkdir -p state
+   chmod 700 state
+   ```
 
-### Prerequisites
+4. Link the Signal account as a secondary device. Choose a device name that
+   identifies this instance. Scan the terminal QR code on the phone:
+   **Signal → Settings → Linked devices → Link new device**.
 
-- [Docker](https://docs.docker.com/get-docker/) installed and running
-- A phone with Signal (you'll link this container as a secondary device)
+   ```bash
+   docker run --rm -it --platform linux/amd64 \
+     -v "$PWD/state:/var/lib/signal-cli" \
+     signal-cli:latest link --name '<instance-device-name>'
+   ```
 
-### 1. Get the image
+   The command exits after the phone confirms the link. It must use this
+   instance's `state/`, never state copied from another host.
 
-**Option A — Pull from GHCR** (recommended, no local build):
+5. Start and verify the daemon.
 
-```bash
-# Apple Silicon: always add --platform linux/amd64
-docker pull --platform linux/amd64 ghcr.io/timomuc/signal-container:main
-```
+   ```bash
+   docker compose up -d
+   curl --fail http://127.0.0.1:8088/api/v1/check
+   docker compose logs --tail=100 app
+   ```
 
-**Option B — Build locally:**
+A successful health check is necessary but not sufficient: verify an inbound
+message and an outbound reply with the eventual consumer before declaring the
+transport ready.
 
-```bash
-git clone https://github.com/TiMoMuc/signal-container.git
-cd signal-container
-docker compose build
-```
+## Connect pai-bridge on the same Docker Desktop host
 
-### 2. Configure
+Keep this daemon on its localhost bind. A Dockerized local pai-bridge reaches
+that host binding through `host.docker.internal`; configure the bridge's
+Signal client endpoint accordingly in the bridge's own ignored `.env` file.
+The bridge must also name the same Signal account. Do not put bridge settings
+or credentials into this repository.
 
-```bash
-cp .env.example .env
-```
-
-Edit `.env`:
-
-```env
-SIGNAL_PHONE_NUMBER=+15551234567   # your number in international format
-SIGNAL_BIND_HOST=127.0.0.1         # 127.0.0.1 = localhost only; 0.0.0.0 = LAN-accessible
-```
-
-### 3. Link your phone number
-
-Create the persistent volume (stores your account data):
-
-```bash
-docker volume create signal-cli-data
-```
-
-Start the link process — this prints a QR code in your terminal:
-
-```bash
-docker run --rm -it \
-  -v signal-cli-data:/var/lib/signal-cli \
-  signal-cli:latest link --name "My Server"
-```
-
-On your phone: **Signal → Settings → Linked Devices → + → Link New Device** — scan the QR code.  
-The name you pass with `--name` becomes the device name shown in Signal's linked devices list.
-
-The command exits automatically once linking succeeds.
-
-### 4. Start the daemon
+Before starting or restarting the bridge, verify its Docker-side route without
+making the Signal API public:
 
 ```bash
+docker run --rm --add-host host.docker.internal:host-gateway \
+  curlimages/curl:8.12.1 --fail \
+  http://host.docker.internal:8088/api/v1/check
+```
+
+On a remote private instance, prefer an isolated shared Docker network. If a
+host port is necessary, bind only to a specific private interface and make the
+consumer route explicit.
+
+## Operate and recover
+
+### Normal restart
+
+```bash
+docker compose restart
+curl --fail http://127.0.0.1:8088/api/v1/check
+```
+
+A normal restart preserves `state/`. Do **not** use destructive volume/state
+cleanup for routine operation.
+
+### Update deliberately
+
+The Dockerfile resolves the current signal-cli release at image-build time.
+Rebuild deliberately, then verify the daemon and a real message flow:
+
+```bash
+docker compose build --pull
+docker compose up -d
+curl --fail http://127.0.0.1:8088/api/v1/check
+```
+
+### Back up and restore
+
+Back up `state/` only for recovery of this same named instance, with the
+daemon stopped. The archive contains account identity and message material;
+store it as a secret.
+
+```bash
+docker compose stop
+archive="signal-state-$(date +%Y%m%d).tar.gz"
+tar czf "$archive" state
 docker compose up -d
 ```
 
-Check it's healthy:
+To restore after loss on the same instance, stop the daemon, replace its empty
+`state/` with the archived directory, preserve restrictive local permissions,
+and start it again. Restoring that archive on another instance violates the
+identity-ownership rule and is not a provisioning method.
+
+## API reference and troubleshooting
+
+- Health: `GET /api/v1/check`
+- Send: `POST /api/v1/rpc`
+- Receive: `GET /api/v1/events`
+
+See the [signal-cli daemon API](https://github.com/AsamK/signal-cli) for
+method and event payload detail. For a local problem, inspect in this order:
 
 ```bash
-curl http://localhost:8088/api/v1/check
-# → 200 OK
+docker compose ps
+docker compose logs --tail=100 app
+curl --fail http://127.0.0.1:8088/api/v1/check
+docker run --rm --platform linux/amd64 \
+  -v "$PWD/state:/var/lib/signal-cli" \
+  signal-cli:latest listAccounts
 ```
 
-> Next: [set up auto-updates](#auto-update) to keep signal-cli current.
-
-### 5. Send a message
-
-```bash
-curl -X POST http://localhost:8088/api/v1/rpc \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "method": "send",
-    "params": {
-      "noteToSelf": true,
-      "message": "Hello from signal-cli!"
-    },
-    "id": 1
-  }'
-```
-
-### 6. Receive messages (live stream)
-
-```bash
-curl -N http://localhost:8088/api/v1/events
-```
-
-Leave this running — incoming messages print as they arrive.  
-`-N` disables curl buffering so events appear immediately.
-
----
-
-## API Reference
-
-### Send — `POST /api/v1/rpc`
-
-Every request has this shape:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "send",
-  "params": { … },
-  "id": 1
-}
-```
-
-`id` is any number you choose — it's echoed back so you can match responses to requests.
-
-#### Send to a recipient
-
-```bash
-curl -X POST http://localhost:8088/api/v1/rpc \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "method": "send",
-    "params": {
-      "recipient": ["+15559876543"],
-      "message": "Hello!"
-    },
-    "id": 1
-  }'
-```
-
-#### Send to multiple recipients
-
-```bash
-curl -X POST http://localhost:8088/api/v1/rpc \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "method": "send",
-    "params": {
-      "recipient": ["+15559876543", "+15551112222"],
-      "message": "Group announcement"
-    },
-    "id": 1
-  }'
-```
-
-#### Send an attachment (file)
-
-Attachments are passed as **inline base64 data URIs** — no bind mounts, temp directories, or helper services needed:
-
-```bash
-B64=$(base64 < document.pdf | tr -d '\n')
-
-curl -X POST http://localhost:8088/api/v1/rpc \
-  -H "Content-Type: application/json" \
-  -d "{
-    \"jsonrpc\": \"2.0\",
-    \"method\": \"send\",
-    \"params\": {
-      \"recipient\": [\"+15559876543\"],
-      \"message\": \"Here is the document\",
-      \"attachments\": [\"data:application/pdf;filename=document.pdf;base64,${B64}\"]
-    },
-    \"id\": 1
-  }"
-```
-
-The data URI format is: `data:<MIME-type>;filename=<name>;base64,<base64-data>`
-
-**Size limit:** Signal enforces a ~100 MB limit on attachments (including encryption overhead). Base64 encoding inflates data by ~33%, so plan accordingly. Exceeding the limit will result in a send failure.
-
-#### Additional send params
-
-| Param | Description |
-|---|---|
-| `noteToSelf: true` | Send to your own "Note to Self" |
-| `groupId: "BASE64_ID"` | Send to a Signal group |
-| `recipient: ["+1…"]` | Send to one or more phone numbers |
-| `mention` | Mention a group member (syntax: `start:length:number`) |
-| `quoteTimestamp`, `quoteAuthor` | Quote a previous message |
-| `editTimestamp` | Edit a previously sent message |
-
-### Receive — `GET /api/v1/events`
-
-[Server-Sent Events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events) (SSE) — the daemon pushes each incoming message as it arrives over a persistent HTTP connection. Built into every browser and most HTTP libraries. Reconnects automatically.
-
-#### With curl
-
-```bash
-curl -N http://localhost:8088/api/v1/events
-```
-
-#### Filter in real time
-
-```bash
-curl -N http://localhost:8088/api/v1/events \
-  | grep --line-buffered '^data:' \
-  | sed 's/^data: //' \
-  | jq --unbuffered -r '
-      select(.envelope.dataMessage.message != null)
-      | "\(.envelope.sourceName // .envelope.source): \(.envelope.dataMessage.message)"'
-```
-
-#### With Python
-
-```python
-import requests, json
-
-with requests.get("http://localhost:8088/api/v1/events", stream=True) as r:
-    for line in r.iter_lines(decode_unicode=True):
-        if not line or not line.startswith("data:"):
-            continue
-        event = json.loads(line[5:].strip())
-        env = event.get("envelope", {})
-        msg = env.get("dataMessage", {}).get("message")
-        if msg:
-            print(f"{env.get('sourceName') or env.get('source')}: {msg}")
-```
-
-#### With Node.js
-
-```javascript
-const EventSource = require("eventsource");
-const es = new EventSource("http://localhost:8088/api/v1/events");
-es.onmessage = (event) => {
-  const { envelope } = JSON.parse(event.data);
-  const msg = envelope?.dataMessage?.message;
-  if (msg) console.log(`${envelope.sourceName || envelope.source}: ${msg}`);
-};
-```
-
-#### Persistent listener (shell, auto-reconnects)
-
-```bash
-#!/usr/bin/env bash
-while true; do
-  curl -fsSN http://localhost:8088/api/v1/events \
-    | grep --line-buffered '^data:' \
-    | sed 's/^data: //' \
-    | while IFS= read -r line; do
-        SENDER=$(echo "$line" | jq -r '.envelope.sourceName // .envelope.source')
-        MESSAGE=$(echo "$line" | jq -r '.envelope.dataMessage.message // empty')
-        [ -z "$MESSAGE" ] && continue
-        echo "$(date): [$SENDER] $MESSAGE"
-      done
-  echo "Disconnected — reconnecting in 5s..."
-  sleep 5
-done
-```
-
-### Health check — `GET /api/v1/check`
-
-```bash
-# The endpoint returns 200 with an empty body — use -w to see the status code:
-curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8088/api/v1/check
-# → 200
-```
-
----
-
-## Traffiq deployment
-
-On the black-agents server this repository is deployed as the unrouted
-`signal` app: `.traffiq/app.env` intentionally has no `APP_PORT`, so it gets
-no Traefik route and never joins the `proxy` network. The HTTP API remains
-Tailscale-only through `SIGNAL_BIND_HOST=100.68.163.67` and port `8088`.
-
-The phone number is server-only configuration in
-`/srv/traffiq/apps/signal/runtime/signal.env`; do not commit it. The Compose
-file binds the API to the server's current Tailscale IP and declares the
-existing `signal-cli-data` volume as external, preserving
-its linked-device registration and message state across this migration.
-
----
-
-## Security
-
-**There is no authentication on the HTTP API.** The port binding controls who can reach it:
-
-| `SIGNAL_BIND_HOST` | Effect |
-|---|---|
-| `127.0.0.1` (default) | Only processes on the same machine can connect |
-| `0.0.0.0` | Any device on your LAN can connect |
-
-**Never expose this port to the public internet.**
-
-If another Docker container needs access, skip the port entirely and connect both containers to the same Docker network:
-
-```yaml
-# In the consuming stack's compose file:
-services:
-  signal-cli:
-    image: ghcr.io/timomuc/signal-container:main
-    platform: linux/amd64
-    environment:
-      SIGNAL_PHONE_NUMBER: "+15551234567"
-    volumes:
-      - signal-cli-data:/var/lib/signal-cli
-    # no ports: — the other container reaches it via http://signal-cli:8080
-```
-
----
-
-## Container image
-
-### Pre-built (GHCR)
-
-The image is published to GitHub Container Registry on every push to `main` and every `v*` tag:
-
-```
-ghcr.io/timomuc/signal-container:main
-```
-
-| Tag | Description |
-|---|---|
-| `:main` | Latest commit on `main` — **rolling** |
-| `:sha-<hash>` | Specific commit |
-| `:<YYYYMMDD-HHMMSS>` | Build timestamp |
-| `:v*` | Git tags (when pushed) |
-
-The image is `linux/amd64` only. On Apple Silicon (M1–M4), always add `--platform linux/amd64` to `docker pull` and `docker run`, or set `platform: linux/amd64` in your compose file. Docker emulates x86_64 automatically.
-
-#### Using the pre-built image with Docker Compose
-
-```yaml
-services:
-  signal-cli:
-    image: ghcr.io/timomuc/signal-container:main
-    platform: linux/amd64
-    container_name: signal-cli
-    restart: unless-stopped
-    env_file: .env
-    ports:
-      - "${SIGNAL_BIND_HOST}:8088:8080"
-    volumes:
-      - signal-cli-data:/var/lib/signal-cli
-    command: ["-a", "${SIGNAL_PHONE_NUMBER}", "daemon", "--http", "0.0.0.0:8080"]
-
-volumes:
-  signal-cli-data:
-    name: signal-cli-data
-```
-
-### Build locally
-
-```bash
-docker compose build
-```
-
-This downloads the latest signal-cli release at build time and tags the image as `signal-cli:latest`.
-
-### Image update with GHCR
-
-If you're using the pre-built image, pull new versions periodically:
-
-```bash
-docker compose pull
-docker compose up -d
-```
-
-Or use [Watchtower](https://containrrr.dev/watchtower/) to automate this.
-
----
-
-## Auto-update
-
-Signal's protocol expires clients older than ~90 days. The included scheduler automatically rebuilds the container monthly to stay current.
-
-> **Note:** The auto-update scripts rebuild from the local `Dockerfile`. If you're using the [GHCR pre-built image](#pre-built-ghcr), use `docker compose pull` instead — the rebuild scripts are not needed.
-
-### Install
-
-```bash
-./scripts/install-autoupdate.sh
-```
-
-This detects your OS and installs the appropriate scheduler:
-
-| OS | Scheduler | Runs |
-|---|---|---|
-| macOS | LaunchAgent | 1st of every month, 3 AM |
-| Linux | systemd user timer | Monthly |
-
-The scheduler runs `scripts/rebuild-container.sh`, which:
-
-1. Pulls the latest signal-cli release (via image rebuild)
-2. Stops and restarts the container
-3. Preserves your account data in the `signal-cli-data` volume
-4. Logs to `~/Library/Logs/` (macOS) or journald (Linux)
-
-### Test it manually
-
-```bash
-./scripts/rebuild-container.sh
-```
-
-### Uninstall
-
-```bash
-./scripts/uninstall-autoupdate.sh
-```
-
-### If you move the repo
-
-Rerun `./scripts/install-autoupdate.sh` from the new location.
-
----
-
-## Data persistence & backup
-
-Your Signal account credentials, keys, and message history are stored in the Docker volume `signal-cli-data`. This volume **persists across container rebuilds** — you only link your phone number once.
-
-### Backup
-
-```bash
-docker run --rm \
-  -v signal-cli-data:/data \
-  -v "$(pwd):/backup" \
-  alpine tar czf "/backup/signal-cli-backup-$(date +%Y%m%d).tar.gz" -C /data .
-```
-
-### Restore
-
-```bash
-docker volume create signal-cli-data
-docker run --rm \
-  -v signal-cli-data:/data \
-  -v "$(pwd):/backup" \
-  alpine tar xzf "/backup/signal-cli-backup-20260308.tar.gz" -C /data
-docker compose up -d
-```
-
-### ⚠️ The only way to lose your registration
-
-```bash
-docker compose down -v         # removes the volume
-docker volume rm signal-cli-data
-```
-
-Either of these deletes your account data and requires re-linking.
-
----
-
-## Troubleshooting
-
-### `exec format error` during `docker compose build` on Linux
-
-If you're building on a Linux ARM64 host (Raspberry Pi, ARM cloud server, etc.) and see:
-
-```
-exec /bin/sh: exec format error
-```
-
-The x86_64 base image can't run without QEMU emulation. Install it once:
-
-```bash
-docker run --privileged --rm tonistiigi/binfmt --install all
-```
-
-Then retry `docker compose build`. This survives reboots.
-
-### `exec format error` / `no matching manifest` on Apple Silicon
-
-Add `--platform linux/amd64`:
-
-```bash
-docker pull --platform linux/amd64 ghcr.io/timomuc/signal-container:main
-docker run --platform linux/amd64 …
-```
-
-Or set it globally:
-
-```bash
-export DOCKER_DEFAULT_PLATFORM=linux/amd64
-# add to ~/.zshrc to make permanent
-```
-
-### Can't link device
-
-- Verify the volume exists: `docker volume ls | grep signal-cli`
-- Rerun: `docker run --rm -it -v signal-cli-data:/var/lib/signal-cli signal-cli:latest link --name "My Server"`
-
-### API not responding
-
-```bash
-docker compose ps              # is it running?
-curl http://localhost:8088/api/v1/check  # health check
-docker compose logs signal-cli
-```
-
-### Daemon exits immediately
-
-The daemon requires a linked account. Run `docker run --rm -v signal-cli-data:/var/lib/signal-cli signal-cli:latest listAccounts` to verify one exists.
-
-### Container won't start / WebSocket reconnects
-
-Check Docker is running (`docker info`) and review logs (`docker compose logs`). Temporary WebSocket disconnects are normal — signal-cli reconnects automatically.
-
-### Registration via SMS/voice
-
-If you need to register a new number (instead of linking as secondary device), see [signal-cli's registration docs](https://github.com/AsamK/signal-cli?tab=readme-ov-file#usage). Replace `signal-cli` with:
-
-```bash
-docker run --rm -it -v signal-cli-data:/var/lib/signal-cli signal-cli:latest …
-```
-
----
-
-## Credits
-
-- [signal-cli](https://github.com/AsamK/signal-cli) by AsamK — the tool this container wraps
-- [Signal](https://signal.org) — private messaging for everyone
-
-## License
-
-This repository contains configuration and documentation. signal-cli itself is GPL-3.0-licensed.
+If the account is absent, link it again using this instance's existing
+`state/`. Treat a deleted or intentionally replaced `state/` directory as a
+new identity requiring a new link.
