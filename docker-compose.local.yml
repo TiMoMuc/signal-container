@@ -1,0 +1,5 @@
+# Explicit local-development access. Do not use this override on an instance.
+services:
+  signal:
+    ports:
+      - "${SIGNAL_BIND_HOST:-127.0.0.1}:8088:8080"

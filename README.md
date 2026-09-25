@@ -46,7 +46,8 @@ The QR scan is intentionally a human trust step.
 3. Build the image and create the fresh instance state directory.
 
    ```bash
-   docker compose build
+   docker network inspect pai-transports >/dev/null 2>&1 || docker network create pai-transports
+docker compose -f docker-compose.yml -f docker-compose.local.yml build
    mkdir -p state
    chmod 700 state
    ```
@@ -67,9 +68,9 @@ The QR scan is intentionally a human trust step.
 5. Start and verify the daemon.
 
    ```bash
-   docker compose up -d
+   docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
    curl --fail http://127.0.0.1:8088/api/v1/check
-   docker compose logs --tail=100 app
+   docker compose -f docker-compose.yml -f docker-compose.local.yml logs --tail=100 signal
    ```
 
 A successful health check is necessary but not sufficient: verify an inbound
@@ -102,7 +103,7 @@ consumer route explicit.
 ### Normal restart
 
 ```bash
-docker compose restart
+docker compose -f docker-compose.yml -f docker-compose.local.yml restart
 curl --fail http://127.0.0.1:8088/api/v1/check
 ```
 
@@ -115,8 +116,9 @@ The Dockerfile resolves the current signal-cli release at image-build time.
 Rebuild deliberately, then verify the daemon and a real message flow:
 
 ```bash
-docker compose build --pull
-docker compose up -d
+docker network inspect pai-transports >/dev/null 2>&1 || docker network create pai-transports
+docker compose -f docker-compose.yml -f docker-compose.local.yml build --pull
+docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
 curl --fail http://127.0.0.1:8088/api/v1/check
 ```
 
@@ -130,7 +132,7 @@ store it as a secret.
 docker compose stop
 archive="signal-state-$(date +%Y%m%d).tar.gz"
 tar czf "$archive" state
-docker compose up -d
+docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
 ```
 
 To restore after loss on the same instance, stop the daemon, replace its empty
@@ -148,8 +150,8 @@ See the [signal-cli daemon API](https://github.com/AsamK/signal-cli) for
 method and event payload detail. For a local problem, inspect in this order:
 
 ```bash
-docker compose ps
-docker compose logs --tail=100 app
+docker compose -f docker-compose.yml -f docker-compose.local.yml ps
+docker compose -f docker-compose.yml -f docker-compose.local.yml logs --tail=100 signal
 curl --fail http://127.0.0.1:8088/api/v1/check
 docker run --rm --platform linux/amd64 \
   -v "$PWD/state:/var/lib/signal-cli" \

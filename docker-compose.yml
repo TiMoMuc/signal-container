@@ -1,22 +1,23 @@
 services:
-  app:
+  signal:
     build:
       context: .
       dockerfile: Dockerfile
     image: signal-cli:latest
     # signal-cli only bundles libsignal native libs for x86_64 Linux.
-    # This must stay linux/amd64 regardless of host architecture.
     platform: linux/amd64
     restart: unless-stopped
     env_file:
       - .env
-    ports:
-      # The Signal HTTP API has no authentication. Never bind it publicly.
-      - "${SIGNAL_BIND_HOST:-127.0.0.1}:8088:8080"
     volumes:
-      # Instance-owned linked-device identity, keys, and messages.
       - "${SIGNAL_STATE_DIR:-./state}:/var/lib/signal-cli"
-    # Run as the standalone HTTP daemon on all container interfaces.
+    networks:
+      - pai-transports
     entrypoint: ["/bin/sh", "-c"]
     command:
       - 'exec signal-cli --config=/var/lib/signal-cli -a "$${SIGNAL_PHONE_NUMBER}" daemon --http 0.0.0.0:8080'
+
+networks:
+  pai-transports:
+    name: "${PAI_TRANSPORTS_NETWORK:-pai-transports}"
+    external: true
