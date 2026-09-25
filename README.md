@@ -14,7 +14,9 @@ HTTP API and does not own this container or its account state.
 - `.env` is the only application configuration source. Copy
   `.env.example`; do not record actual values in docs or Compose files.
 - `state/` is instance-owned mutable state: the linked-device identity,
-  account keys, attachments, and message data. It is ignored by Git.
+  account keys, attachments, and message data. It is ignored by Git. On a
+  Linux host, it is mode `0700` and owned by the container's `signal-cli`
+  runtime identity (UID/GID `999`).
 - One Signal number and its `state/` belong to one instance only. Never copy
   them to create another server. A backup may restore the *same* instance.
 
@@ -47,9 +49,10 @@ The QR scan is intentionally a human trust step.
 
    ```bash
    docker network inspect pai-transports >/dev/null 2>&1 || docker network create pai-transports
-docker compose -f docker-compose.yml -f docker-compose.local.yml build
-   mkdir -p state
-   chmod 700 state
+   docker compose -f docker-compose.yml -f docker-compose.local.yml build
+
+   # Linux host: the non-root signal-cli process must own its private state.
+   sudo install -d -o 999 -g 999 -m 0700 state
    ```
 
 4. Link the Signal account as a secondary device. Choose a device name that

@@ -24,7 +24,7 @@ RUN VERSION=$(curl -fsSL -o /dev/null -w '%{url_effective}' \
  && rm /tmp/signal-cli.tar.gz
 
 # Dedicated non-root user; home dir is the data directory
-RUN useradd signal-cli --system --create-home --home-dir /var/lib/signal-cli
+RUN useradd signal-cli --system --uid 999 --user-group --create-home --home-dir /var/lib/signal-cli
 
 # Persist account data (keys, account info, attachments) outside the container
 VOLUME /var/lib/signal-cli
